@@ -1,23 +1,49 @@
 // Get API URL from environment or use default
 // In development, try to detect if backend is running on a different port
 const getApiUrl = (): string => {
-  // First check environment variable
+  // First check environment variable (highest priority)
   if ((import.meta as any).env?.VITE_API_URL) {
-    return (import.meta as any).env.VITE_API_URL as string;
+    const apiUrl = (import.meta as any).env.VITE_API_URL as string;
+    console.log('Using VITE_API_URL from environment:', apiUrl);
+    return apiUrl;
   }
   
-  // Check if we're running on a different port (like 57147)
-  // If so, try to use localhost:3001 for backend (standard backend port)
-  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-  const currentPort = typeof window !== 'undefined' ? window.location.port : '';
-  
-  // If running on localhost (any port), backend should be on localhost:3001
-  if (currentHost === 'localhost' || currentHost === '127.0.0.1') {
+  // Check if we're in browser environment
+  if (typeof window === 'undefined') {
+    // Server-side rendering or build time - use default
     return 'http://localhost:3001';
   }
   
-  // For remote servers, use the same host but port 3001
-  return `http://${currentHost}:3001`;
+  const currentHost = window.location.hostname;
+  const currentProtocol = window.location.protocol; // 'http:' or 'https:'
+  const isProduction = currentHost !== 'localhost' && currentHost !== '127.0.0.1';
+  
+  // If running on localhost (development), backend should be on localhost:3001
+  if (!isProduction) {
+    return 'http://localhost:3001';
+  }
+  
+  // For production (Vercel, etc.), use same protocol as frontend
+  // If frontend is HTTPS, backend should also be HTTPS
+  const protocol = currentProtocol === 'https:' ? 'https:' : 'http:';
+  
+  // Option 1: Use relative URL (recommended if backend is on same domain)
+  if ((import.meta as any).env?.VITE_USE_RELATIVE_API === 'true') {
+    return ''; // Empty string means relative URLs (uses same protocol as frontend)
+  }
+  
+  // Option 2: Use custom backend host from environment
+  const backendHost = (import.meta as any).env?.VITE_BACKEND_HOST;
+  if (backendHost) {
+    const backendPort = (import.meta as any).env?.VITE_BACKEND_PORT || '';
+    return `${protocol}//${backendHost}${backendPort ? `:${backendPort}` : ''}`;
+  }
+  
+  // Option 3: Default - use same host as frontend (not recommended for production)
+  // This assumes backend is on the same domain, which is usually not the case
+  // Better to set VITE_API_URL or VITE_BACKEND_HOST
+  console.warn('⚠️ No backend URL configured. Using same host as frontend. Set VITE_API_URL or VITE_BACKEND_HOST in production.');
+  return `${protocol}//${currentHost}:3001`;
 };
 
 const API_URL = getApiUrl();
@@ -155,7 +181,8 @@ class ApiService {
     endpoint: string,
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${API_URL}${endpoint}`;
+    // Handle relative URLs (when API_URL is empty string)
+    const url = API_URL ? `${API_URL}${endpoint}` : endpoint;
     
     console.log('API Request:', url); // Debug log
     
