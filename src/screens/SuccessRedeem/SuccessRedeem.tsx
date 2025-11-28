@@ -17,8 +17,8 @@ interface SuccessRedeemProps {
 export const SuccessRedeem = ({
   initialInvestment = "0.110 SOL",
   finalValue = "0.139 SOL",
-  totalReturn = "+0.029 SOL",
-  totalReturnPercent = "+26 %",
+  totalReturn,
+  totalReturnPercent,
   exitFee = "-0.00139 SOL",
   finalPayout = "0.138 SOL",
   categoryName = "Peltifi",
@@ -27,6 +27,23 @@ export const SuccessRedeem = ({
   onViewTransaction,
 }: SuccessRedeemProps): JSX.Element => {
   const navigate = useNavigate();
+
+  // Calculate totalReturn and totalReturnPercent from initialInvestment (from wallets.json) and finalPayout
+  const parseSolValue = (value: string): number => {
+    // Remove " SOL" and parse
+    return parseFloat(value.replace(/\s*SOL\s*/g, '')) || 0;
+  };
+
+  const initialInvestmentValue = parseSolValue(initialInvestment);
+  const finalPayoutValue = parseSolValue(finalPayout);
+  const calculatedTotalReturn = finalPayoutValue - initialInvestmentValue;
+  const calculatedTotalReturnPercent = initialInvestmentValue > 0 
+    ? (calculatedTotalReturn / initialInvestmentValue * 100) 
+    : 0;
+
+  // Always calculate from initialInvestment and finalPayout (from wallets.json)
+  const displayTotalReturn = `${calculatedTotalReturn >= 0 ? '+' : ''}${calculatedTotalReturn.toFixed(4)} SOL`;
+  const displayTotalReturnPercent = `${calculatedTotalReturnPercent >= 0 ? '+' : ''}${calculatedTotalReturnPercent.toFixed(2)}%`;
 
   const handleBackdropClick = () => {
     onBackToHome(); // Close the modal
@@ -101,9 +118,13 @@ export const SuccessRedeem = ({
                   Total Return:
                 </span>
                 <span className={`[font-family:'Inter',Helvetica] font-semibold text-sm sm:text-base tracking-[0] leading-[normal] ${
-                  parseFloat(totalReturnPercent.replace(/[+%\s]/g, '')) > 0 ? 'text-[#BBFE03]' : 'text-[#FE4A03]'
+                  calculatedTotalReturnPercent > 0 ? 'text-[#BBFE03]' : 'text-[#FE4A03]'
                 }`}>
-                  <span className="font-bold">{totalReturnPercent}</span> ({totalReturn})
+                  <span className="font-bold">{(() => {
+                    return calculatedTotalReturnPercent < 0 ? displayTotalReturnPercent.replace('+', '') : displayTotalReturnPercent;
+                  })()}</span> ({(() => {
+                    return calculatedTotalReturn < 0 ? displayTotalReturn.replace('+', '') : displayTotalReturn;
+                  })()})
                 </span>
               </div>
 

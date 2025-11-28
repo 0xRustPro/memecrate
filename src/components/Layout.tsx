@@ -33,7 +33,7 @@ const LayoutInner = (): JSX.Element => {
     setIsPageTransitioning(true);
     const timer = setTimeout(() => {
       setIsPageTransitioning(false);
-    }, 200);
+    }, 300);
     return () => clearTimeout(timer);
   }, [location.pathname]);
 

@@ -321,7 +321,8 @@ class ApiService {
     signedTransaction: string,
     blockhash: string,
     lastValidBlockHeight: number,
-    purchaseId?: string
+    purchaseId?: string,
+    rerollCount?: number
   ): Promise<{
     success: boolean;
     signature: string;
@@ -339,6 +340,7 @@ class ApiService {
         blockhash,
         lastValidBlockHeight,
         purchaseId,
+        rerollCount,
       }),
     });
   }
@@ -391,12 +393,23 @@ class ApiService {
       generatedWalletPublicKey: string;
       createdAt: number;
       tokenPurchases: Array<{
-        mintAddress: string;
-        tokenName: string;
-        tokenImage?: string;
-        buyAmountSol: number;
-        purchaseId?: string;
+        purchaseId: string;
         category?: string;
+        initialInvestment?: number;
+        tokens: Array<{
+          mintAddress: string;
+          tokenName: string;
+          tokenImage?: string;
+          buyAmountSol: number;
+          tokenAmount?: string;
+        }>;
+        totalInvested?: string;
+        totalCurrentValue?: string;
+        totalPnlValue?: string;
+        totalPnlPercent?: string;
+        isPositive?: boolean;
+        hasCompleteTokens?: boolean;
+        error?: string;
       }>;
     } | null;
   }> {

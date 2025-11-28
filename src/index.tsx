@@ -44,46 +44,46 @@ function initApp() {
   try {
     const root = createRoot(appElement);
     root.render(
-      <StrictMode>
-        <WalletContextProvider>
-          <GameFlowProvider>
-            <BrowserRouter>
-              <Routes>
-                <Route element={<Layout />}>
-                  <Route index element={null} />
-                  <Route path="/crate" element={null} />
-                  <Route path="/pick-category" element={null} />
-                  <Route path="/success-redeem" element={null} />
-                </Route>
-                <Route
-                  path="/your-crates"
-                  element={
-                    <YourCrates
-                      onOpenCrate={(crateId) => {
-                        console.log("Opening crate:", crateId);
-                      }}
-                      onBack={() => window.history.back()}
-                    />
-                  }
+  <StrictMode>
+    <WalletContextProvider>
+      <GameFlowProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route index element={null} />
+              <Route path="/crate" element={null} />
+              <Route path="/pick-category" element={null} />
+              <Route path="/success-redeem" element={null} />
+            </Route>
+            <Route
+              path="/your-crates"
+              element={
+                <YourCrates
+                  onOpenCrate={(crateId) => {
+                    console.log("Opening crate:", crateId);
+                  }}
+                  onBack={() => window.history.back()}
                 />
-                <Route
-                  path="/cash-out"
-                  element={
-                    <CashOut
-                      onConfirm={() => {
-                        window.location.href = "/success-redeem";
-                      }}
-                      onBack={() => window.history.back()}
-                    />
-                  }
+              }
+            />
+            <Route
+              path="/cash-out"
+              element={
+                <CashOut
+                  onConfirm={() => {
+                    window.location.href = "/success-redeem";
+                  }}
+                  onBack={() => window.history.back()}
                 />
-                <Route path="/success-redeem" element={null} />
-              </Routes>
-            </BrowserRouter>
-          </GameFlowProvider>
-        </WalletContextProvider>
-      </StrictMode>,
-    );
+              }
+            />
+            <Route path="/success-redeem" element={null} />
+          </Routes>
+        </BrowserRouter>
+      </GameFlowProvider>
+    </WalletContextProvider>
+  </StrictMode>,
+);
   } catch (error) {
     console.error("Failed to initialize app:", error);
   }

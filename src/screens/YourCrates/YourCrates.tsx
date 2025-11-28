@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/button";
 import { WalletButton } from "../../components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { apiService, PortfolioToken } from "../../services/api";
+import { Loading } from "../../components/Loading";
 
 
 
@@ -203,7 +204,9 @@ export const YourCrates = ({ onOpenCrate: _onOpenCrate, onBack: _onBack }: YourC
 
           <div className="w-full">
             {walletLoading ? (
-              <div className="text-center text-white py-8">Loading wallet data...</div>
+              <div className="flex items-center justify-center py-16">
+                <Loading size="lg" message="Loading wallet data..." />
+              </div>
             ) : walletData && walletData.tokenPurchases && Array.isArray(walletData.tokenPurchases) && walletData.tokenPurchases.length > 0 ? (
               (() => {
                 // Backend now returns grouped format directly with P&L data, but handle both for backward compatibility

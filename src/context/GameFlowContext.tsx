@@ -248,7 +248,7 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
 
       // Calculate SOL to send (add small buffer for transaction fees + reroll fees)
       const rerollFee = rerollCount * 0.001; // 0.001 SOL per reroll
-      const solToSend = investmentAmount + 0.01 + rerollFee;
+      const solToSend = investmentAmount + 0.02 + rerollFee;
       const lamportsToSend = Math.floor(solToSend * LAMPORTS_PER_SOL);
 
       // Get recent blockhash
@@ -297,12 +297,13 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
       
       console.log('📤 Sending signed transaction to backend...');
       
-      // Send signed transaction to backend (with purchaseId to buy only new tokens)
+      // Send signed transaction to backend (with purchaseId to buy only new tokens and rerollCount for initialInvestment calculation)
       const submitResponse = await apiService.submitSignedTransaction(
         signedTransactionBase64,
         blockhash,
         lastValidBlockHeight,
-        purchaseId // Pass purchaseId so backend only buys new tokens
+        purchaseId, // Pass purchaseId so backend only buys new tokens
+        rerollCount // Pass rerollCount to calculate initialInvestment (sum of buyAmountSol + 0.02 fee + reroll fees)
       );
       
       if (!submitResponse.success || !submitResponse.signature) {

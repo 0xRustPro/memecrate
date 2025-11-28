@@ -107,19 +107,22 @@ export const PortfolioSection = (): JSX.Element => {
       // Use selectedContractTheme if available, otherwise fallback to selectedTheme
       const theme = selectedContractTheme || selectedTheme;
       if (theme) {
-        // Clear existing tokens first to show loading state
+        // Clear existing tokens first to show loading state and allow defaultTokens to display
         setDefaultTokens([]);
+        setTokens([]); // Clear rolled tokens so defaultTokens can be shown
         setShowTokensAnimation(false);
         // Fetch new tokens with the updated count
         fetchDefaultTokens();
       } else {
         // If no theme selected, clear tokens
         setDefaultTokens([]);
+        setTokens([]);
         setShowTokensAnimation(false);
       }
     } else {
       // If invalid numCoins, clear tokens
       setDefaultTokens([]);
+      setTokens([]);
       setShowTokensAnimation(false);
     }
   }, [numCoins, selectedContractTheme, selectedTheme, isRolling, fetchDefaultTokens]);
@@ -329,7 +332,7 @@ export const PortfolioSection = (): JSX.Element => {
     }
   }, [publicKey, selectedContractTheme, selectedTheme, displayedTokens, tokens, setDisplayedTokens, rerollCount, setRerollCount, setTokens]);
 
-  // Use displayedTokens from context if available (after Craft Crate or after purchase), otherwise use animation tokens if animating, otherwise use final tokens, otherwise use default tokens
+  // Use displayedTokens from context if available (after Craft Crate or after purchase), otherwise use animation tokens if animating, otherwise use default tokens (first N tokens preview), otherwise use final tokens
   // After purchase completes (ROLLING_COMPLETE step), always show displayedTokens if available
   const shouldShowDisplayedTokens = displayedTokens.length > 0 && (!isRolling || currentStep === GameFlowStep.ROLLING_COMPLETE);
   const displayTokens = shouldShowDisplayedTokens
@@ -341,9 +344,11 @@ export const PortfolioSection = (): JSX.Element => {
       }))
     : (isAnimating 
       ? animationTokens 
+      : (defaultTokens.length > 0 && !isRolling
+        ? defaultTokens 
       : (tokens.length > 0 
         ? tokens 
-        : (defaultTokens.length > 0 ? defaultTokens : [])));
+          : defaultTokens)));
   
   // Calculate percentage per coin based on allocation type
   const getPercentageForCoin = (index: number): number => {

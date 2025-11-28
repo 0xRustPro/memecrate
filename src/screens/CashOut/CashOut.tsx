@@ -5,6 +5,7 @@ import { WalletButton } from "../../components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { apiService } from "../../services/api";
 import { SuccessRedeem } from "../SuccessRedeem";
+import { Loading } from "../../components/Loading";
 
 // Token interface for display
 interface TokenDisplay {
@@ -34,6 +35,8 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
   const [purchaseCategory, setPurchaseCategory] = useState<string | null>(null);
   const [tokens, setTokens] = useState<TokenDisplay[]>([]);
   const [totalSol, setTotalSol] = useState<number>(0);
+  const [initialInvestment, setInitialInvestment] = useState<number>(0); // initialInvestment from wallets.json
+  const [tokensLoading, setTokensLoading] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState<{
     initialInvestment: string;
@@ -92,7 +95,7 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
     }
   }, [location]);
 
-  // Fetch tokens P&L from backend when purchaseId is available
+  // Fetch tokens P&L and initialInvestment from backend when purchaseId is available
   useEffect(() => {
     const fetchTokensPnl = async () => {
       if (!purchaseId) {
@@ -121,6 +124,7 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
       }
 
       try {
+        setTokensLoading(true);
         // Fetch P&L data from backend
         const result = await apiService.getTokensPnl(purchaseId);
         
@@ -161,11 +165,41 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
         } else {
           setTokens([]);
         }
+      } finally {
+        setTokensLoading(false);
+      }
+    };
+
+    const fetchInitialInvestment = async () => {
+      if (!purchaseId || !publicKey) return;
+
+      try {
+        // Fetch wallet data to get initialInvestment for this purchaseId
+        const walletResult = await apiService.getUserWallet(publicKey.toString());
+        if (walletResult.success && walletResult.wallet?.tokenPurchases) {
+          // Find the purchase group with matching purchaseId
+          const purchaseGroup = walletResult.wallet.tokenPurchases.find(
+            (purchase: any) => purchase.purchaseId === purchaseId
+          );
+          if (purchaseGroup?.initialInvestment !== undefined) {
+            setInitialInvestment(parseFloat(purchaseGroup.initialInvestment) || 0);
+            console.log(`✅ Loaded initialInvestment from wallets.json: ${purchaseGroup.initialInvestment} SOL`);
+          } else {
+            // Fallback: calculate from totalSol if initialInvestment not found
+            console.warn(`⚠️ initialInvestment not found for purchaseId ${purchaseId}, using totalSol as fallback`);
+            setInitialInvestment(totalSol || 0);
+          }
+        }
+      } catch (error: any) {
+        console.error('Error fetching initialInvestment:', error);
+        // Fallback: use totalSol if fetch fails
+        setInitialInvestment(totalSol || 0);
       }
     };
 
     fetchTokensPnl();
-  }, [purchaseId, location.state]);
+    fetchInitialInvestment();
+  }, [purchaseId, location.state, publicKey, totalSol]);
 
   const handleConfirmCashOut = async () => {
     if (!purchaseId || !publicKey) {
@@ -178,14 +212,22 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
       setError(null);
       const result = await apiService.cashout(publicKey.toString(), purchaseId);
       if (result.success) {
+        // Use initialInvestment from wallets.json (includes 0.02 SOL fee + reroll fees)
+        const initialInvestmentValue = initialInvestment || totalSol || 0;
+        const finalPayoutValue = result.userAmount || 0;
+        const totalReturnValue = finalPayoutValue - initialInvestmentValue;
+        const totalReturnPercentValue = initialInvestmentValue > 0 
+          ? (totalReturnValue / initialInvestmentValue * 100) 
+          : 0;
+
         // Store success data and show modal
         setSuccessData({
-          initialInvestment: (totalSol || 0).toFixed(4) + " SOL",
+          initialInvestment: initialInvestmentValue.toFixed(4) + " SOL",
           finalValue: (result.totalSolReceived || 0).toFixed(4) + " SOL",
-          totalReturn: `+${((result.totalSolReceived || 0) - (totalSol || 0)).toFixed(4)} SOL`,
-          totalReturnPercent: totalSol ? `+${(((result.totalSolReceived || 0) - totalSol) / totalSol * 100).toFixed(2)}%` : "+0%",
+          totalReturn: `${totalReturnValue >= 0 ? '+' : ''}${totalReturnValue.toFixed(4)} SOL`,
+          totalReturnPercent: `${totalReturnPercentValue >= 0 ? '+' : ''}${totalReturnPercentValue.toFixed(2)}%`,
           exitFee: `-${(result.feeAmount || 0).toFixed(5)} SOL`,
-          finalPayout: (result.userAmount || 0).toFixed(5) + " SOL",
+          finalPayout: finalPayoutValue.toFixed(5) + " SOL",
           transactionSignature: result.signature || transactionSignature,
           category: purchaseCategory,
         });
@@ -294,40 +336,62 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
               <span className="[font-family:'Inter',Helvetica] font-normal text-white text-sm sm:text-base tracking-[0] leading-[normal]">
                 Profit Since Crafting
               </span>
-              <div className="flex items-center gap-2">
-                <img src="/top.svg" alt="Top" className="w-4 h-4" />
-                <span className="[font-family:'Inter',Helvetica] font-semibold text-[#BBFE03] text-base sm:text-lg tracking-[0] leading-[normal]">
-                  +26,36%
-                </span>
-                <span className="[font-family:'Inter',Helvetica] font-semibold text-[#BBFE03] text-base sm:text-lg tracking-[0] leading-[normal]">
-                  0.139 SOL
-                </span>
-              </div>
+              {(() => {
+                // Calculate total P&L from tokens
+                const totalInvested = tokens.reduce((sum, token) => sum + parseFloat(token.invested || '0'), 0);
+                const totalCurrentValue = tokens.reduce((sum, token) => sum + parseFloat(token.currentValue || '0'), 0);
+                const totalPnlValue = totalCurrentValue - totalInvested;
+                const totalPnlPercent = totalInvested > 0 ? ((totalPnlValue / totalInvested) * 100) : 0;
+                const isPositive = totalPnlValue >= 0;
+                const pnlPercentFormatted = `${isPositive ? '+' : ''}${totalPnlPercent.toFixed(2)}%`;
+                const pnlValueFormatted = `${isPositive ? '+' : ''}${totalPnlValue.toFixed(4)} SOL`;
+
+                return (
+                  <div className="flex items-center gap-2">
+                    <img src={isPositive ? "/top.svg" : "/down.svg"} alt={isPositive ? "Profit" : "Loss"} className="w-4 h-4" />
+                    <span className={`[font-family:'Inter',Helvetica] font-semibold text-base sm:text-lg tracking-[0] leading-[normal] ${
+                      isPositive ? 'text-[#BBFE03]' : 'text-[#FE4A03]'
+                    }`}>
+                      {pnlPercentFormatted}
+                    </span>
+                    <span className={`[font-family:'Inter',Helvetica] font-semibold text-base sm:text-lg tracking-[0] leading-[normal] ${
+                      isPositive ? 'text-[#BBFE03]' : 'text-[#FE4A03]'
+                    }`}>
+                      {pnlValueFormatted}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
           {/* Token Table */}
           <div className="w-full p-4 sm:p-6 rounded-lg">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-[#5b5b5b]">
-                    <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
-                      TOKEN
-                    </th>
-                    <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
-                      INVESTED
-                    </th>
-                    <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
-                      CURRENT VALUE
-                    </th>
-                    <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
-                      P&L
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tokens.map((token, index) => (
+            {tokensLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loading size="lg" message="Loading token data..." />
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-[#5b5b5b]">
+                      <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
+                        TOKEN
+                      </th>
+                      <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
+                        INVESTED
+                      </th>
+                      <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
+                        CURRENT VALUE
+                      </th>
+                      <th className="text-left py-3 px-2 [font-family:'Inter',Helvetica] font-normal text-[#bbbbbb] text-xs sm:text-sm tracking-[0] leading-[normal]">
+                        P&L
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tokens.map((token, index) => (
                     <tr key={index} className="border-b border-[#5b5b5b] last:border-0">
                       <td className="py-3 px-2">
                         <span className="[font-family:'Inter',Helvetica] font-medium text-white text-sm sm:text-base tracking-[0] leading-[normal]">
@@ -358,11 +422,12 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
                         </span>
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>          
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
 
           {/* Cashout Button */}
           <Button
