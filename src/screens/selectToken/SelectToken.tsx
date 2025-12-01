@@ -165,13 +165,13 @@ export const SelectToken = ({
                 pixelsPerMs = 0.7; // 150px per second
               } else if (distanceToFinal > 200) {
                 // Close to final: slow down
-                pixelsPerMs = 0.5; // 100px per second
+                pixelsPerMs = 0.3; // 100px per second
               } else if (distanceToFinal > 50) {
                 // Very close: very slow
-                pixelsPerMs = 0.4; // 50px per second
+                pixelsPerMs = 0.2; // 50px per second
               } else {
                 // Almost there: crawl
-                pixelsPerMs = 0.2; // Gradually slow to 0
+                pixelsPerMs = 0.1; // Gradually slow to 0
               }
               
               // Update base position (only increase, never decrease)
@@ -347,9 +347,9 @@ export const SelectToken = ({
         } else if (distanceToFinal > 500) {
           pixelsPerMs = 0.6;
         } else if (distanceToFinal > 200) {
-          pixelsPerMs = 0.5;
+          pixelsPerMs = 0.3;
         } else if (distanceToFinal > 50) {
-          pixelsPerMs = 0.4;
+          pixelsPerMs = 0.2;
         } else {
           pixelsPerMs = 0.1;
         }
