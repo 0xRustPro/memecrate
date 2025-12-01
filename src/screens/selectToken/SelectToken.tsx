@@ -349,9 +349,9 @@ export const SelectToken = ({
         } else if (distanceToFinal > 200) {
           pixelsPerMs = 0.1;
         } else if (distanceToFinal > 50) {
-          pixelsPerMs = 0.05;
+          pixelsPerMs = 0.1;
         } else {
-          pixelsPerMs = 0.03;
+          pixelsPerMs = 0.1;
         }
         
         // Update base position (only increase, never decrease)
