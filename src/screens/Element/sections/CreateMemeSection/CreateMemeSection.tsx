@@ -15,6 +15,7 @@ import {
 import { RollingAnimation } from "../../../../components/RollingAnimation";
 import { WalletErrorModal } from "../../../../components/WalletErrorModal";
 import { WalletErrorContext } from "../../../../context/WalletContext";
+import { SelectToken } from "../../../selectToken";
 
 const coinNumbers = [
   { value: "2", label: "2" },
@@ -58,6 +59,8 @@ export const CreateMemeSection = (): JSX.Element => {
   const { showWalletError } = useContext(WalletErrorContext);
   const [isAnimating, setIsAnimating] = useState(false);
   const [usdAmount, setUsdAmount] = useState<number | null>(null);
+  const [solanaPrice, setSolanaPrice] = useState<number | null>(null);
+  const [showSelectToken, setShowSelectToken] = useState(false);
   const [priceLoading, setPriceLoading] = useState(false);
   const [selectedRerollSlots, setSelectedRerollSlots] = useState<number[]>([]);
   const [categoryPreviewImages, setCategoryPreviewImages] = useState<string[]>([]);
@@ -68,6 +71,49 @@ export const CreateMemeSection = (): JSX.Element => {
   );
   const [isRerolling, setIsRerolling] = useState(false); // Track reroll in progress
   const [isCrafting, setIsCrafting] = useState(false); // Track if fetching tokens
+
+  // Fetch Solana price
+  useEffect(() => {
+    const fetchSolanaPrice = async () => {
+      try {
+        const response = await apiService.getSolPrice();
+        if (response.success) {
+          setSolanaPrice(response.price);
+        }
+      } catch (err) {
+        console.error('Error fetching Solana price:', err);
+        setSolanaPrice(150); // Fallback price
+      }
+    };
+
+    fetchSolanaPrice();
+    const interval = setInterval(fetchSolanaPrice, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Cache random tokens when wallet is connected, or when numCoins/theme changes
+  useEffect(() => {
+    if (!publicKey) {
+      return; // Don't cache if wallet is not connected
+    }
+
+    // Use selected values if available, otherwise use defaults
+    const coinsToUse = numCoins || 4;
+    const theme = selectedContractTheme || selectedTheme || 'celebrities';
+
+    // Cache tokens in the background
+    const cacheTokensAsync = async () => {
+      try {
+        await apiService.cacheTokens(publicKey.toString(), theme, coinsToUse);
+        console.log(`✅ Cached ${coinsToUse} tokens for theme "${theme}"`);
+      } catch (error) {
+        console.error('Failed to cache tokens:', error);
+        // Don't show error to user - this is a background operation
+      }
+    };
+
+    cacheTokensAsync();
+  }, [publicKey, numCoins, selectedTheme, selectedContractTheme]); // Cache when wallet connects or settings change
 
   // Convert SOL to USD when investment amount changes (with debounce)
   useEffect(() => {
@@ -283,46 +329,10 @@ export const CreateMemeSection = (): JSX.Element => {
       return;
     }
 
-    try {
-      setIsCrafting(true);
-      const theme = selectedContractTheme || selectedTheme || 'celebrities';
-      
-      // Fetch cached tokens from backend
-      const response = await apiService.getCachedTokens(
-        publicKey.toString(),
-        theme,
-        numCoins
-      );
-
-      if (response.success && response.tokens) {
-        // Display tokens in PortfolioSection by setting them in context
-        setDisplayedTokens(response.tokens);
-        setRerollCount(0);
-        console.log('✅ Tokens fetched and ready to display:', response.tokens);
-      } else {
-        throw new Error('Failed to fetch tokens');
-      }
-    } catch (error: any) {
-      console.error('❌ Error fetching cached tokens:', error);
-      alert(error.message || 'Failed to fetch tokens. Please try again.');
-    } finally {
-      setIsCrafting(false);
-    }
+    // Show SelectToken modal
+    setShowSelectToken(true);
   };
 
-  const handleConfirmAndCreate = async () => {
-    if (!publicKey) {
-      showWalletError("Please connect your wallet");
-      return;
-    }
-
-    // Proceed with existing transaction flow
-    setIsRolling(true);
-    // Delay before sending POST request
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    // Create the crate
-    await createCrate();
-  };
 
   const handleRerollTokens = async () => {
     if (!publicKey || !selectedTheme || !numCoins) {
@@ -565,11 +575,11 @@ export const CreateMemeSection = (): JSX.Element => {
           </div>
 
           <Button
-            onClick={displayedTokens.length > 0 ? handleConfirmAndCreate : handleCraftCrate}
+            onClick={handleCraftCrate}
             disabled={(isProcessing || isCrafting) || !investmentAmount || !selectedTheme}
             className="h-auto w-full sm:w-auto px-4 sm:px-2.5 py-2.5 bg-[#BBFE03] hover:bg-[#BBFE03]/90 disabled:bg-[#BBFE03]/50 disabled:cursor-not-allowed [font-family:'Inter',Helvetica] font-normal text-black tracking-[0] leading-[normal] rounded-md"
           >
-            {isCrafting ? "Loading..." : isProcessing ? "Processing..." : displayedTokens.length > 0 ? "Confirm & Craft" : "Craft Crate"}
+            {isCrafting ? "Loading..." : isProcessing ? "Processing..." : "Craft Crate"}
           </Button>
         </div>
 
@@ -592,6 +602,37 @@ export const CreateMemeSection = (): JSX.Element => {
           </div>
         )}
       </div>
+
+      {/* SelectToken Modal */}
+      {showSelectToken && (
+        <SelectToken
+          onBack={() => setShowSelectToken(false)}
+          numCoins={numCoins}
+          selectedTheme={selectedTheme || ''}
+          selectedContractTheme={selectedContractTheme || undefined}
+          investmentAmount={investmentAmount || 0}
+          solanaPrice={solanaPrice}
+          allocationType={allocationType}
+          coinPercentages={coinPercentages || []}
+          onConfirm={(tokens) => {
+            setDisplayedTokens(tokens);
+            setRerollCount(0);
+            console.log('✅ Tokens selected and saved:', tokens);
+          }}
+          onCreateCrate={async () => {
+            if (!publicKey) {
+              showWalletError("Please connect your wallet");
+              return;
+            }
+            // Start transaction flow
+            setIsRolling(true);
+            // Delay before sending POST request
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            // Create the crate (this will trigger wallet sign modal)
+            await createCrate();
+          }}
+        />
+      )}
     </section>
   );
 };

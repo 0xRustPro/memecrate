@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "../../../../components/ui/button";
 import { useSelectedCoins } from "../../../../context/SelectedCoinsContext";
@@ -23,6 +23,12 @@ export const PortfolioSection = (): JSX.Element => {
   const [allTokenImages, setAllTokenImages] = useState<string[]>([]);
   const [solanaPrice, setSolanaPrice] = useState<number | null>(null);
   const [showTokensAnimation, setShowTokensAnimation] = useState(false);
+  const [isFlowAnimating, setIsFlowAnimating] = useState(true); // Flow animation state
+  const [flowTokenArrays, setFlowTokenArrays] = useState<Token[][]>([]); // Token arrays for flow animation
+  const [flowScrollPositions, setFlowScrollPositions] = useState<number[]>([]); // Scroll positions for flow
+  const [isFlowLoading, setIsFlowLoading] = useState(false); // Loading state when numCoins changes
+  const flowAnimationFrameRef = useRef<number | null>(null);
+  const flowStartTimeRef = useRef<number>(0);
   
   // Fetch Solana price from backend
   useEffect(() => {
@@ -134,6 +140,59 @@ export const PortfolioSection = (): JSX.Element => {
     }
   }, [defaultTokens.length, isRolling, isAnimating]);
 
+  // Start continuous flow animation when numCoins is set (runs until Confirm Craft)
+  // Uses default numCoins=4 and default theme='celebrities' if not selected
+  useEffect(() => {
+    // Use default numCoins=4 if not set or invalid
+    const coinsToUse = (numCoins && [2, 4, 6, 8].includes(numCoins)) ? numCoins : 4;
+    
+    // Use selected theme or default to 'celebrities'
+    const theme = selectedContractTheme || selectedTheme || 'celebrities';
+
+    // Don't start flow if displayedTokens are already set (user already confirmed)
+    if (displayedTokens.length > 0) {
+      setIsFlowAnimating(false);
+      setIsFlowLoading(false);
+      return;
+    }
+
+    // Show loading when numCoins changes
+    setIsFlowLoading(true);
+    setIsFlowAnimating(false);
+    
+    // Clear existing flow arrays
+    setFlowTokenArrays([]);
+    setFlowScrollPositions([]);
+    
+    // Stop any existing animation
+    if (flowAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(flowAnimationFrameRef.current);
+      flowAnimationFrameRef.current = null;
+    }
+
+    // Start flow animation with default values if needed
+    startFlowAnimation(theme, coinsToUse).then(() => {
+      setIsFlowLoading(false);
+      setIsFlowAnimating(true);
+    });
+
+    return () => {
+      // Cleanup on unmount or when dependencies change
+      if (flowAnimationFrameRef.current !== null) {
+        cancelAnimationFrame(flowAnimationFrameRef.current);
+        flowAnimationFrameRef.current = null;
+      }
+    };
+  }, [numCoins, selectedContractTheme, selectedTheme, displayedTokens.length]);
+
+  // Stop flow animation when displayedTokens are set (after Confirm Craft)
+  useEffect(() => {
+    if (displayedTokens.length > 0 && isFlowAnimating) {
+      // Finish flow animation and show selected tokens
+      finishFlowAnimation();
+    }
+  }, [displayedTokens.length, isFlowAnimating]);
+
   // Start animation and fetch tokens when rolling starts
   useEffect(() => {
     if (isRolling && numCoins && selectedTheme) {
@@ -143,6 +202,113 @@ export const PortfolioSection = (): JSX.Element => {
       return cleanup;
     }
   }, [isRolling, numCoins, selectedTheme, selectedContractTheme]);
+
+  // Start continuous flow animation with random tokens at constant speed
+  const startFlowAnimation = async (theme: string, coinsCount?: number): Promise<void> => {
+    try {
+      // Use provided coinsCount or fallback to numCoins or default 4
+      const coinsToUse = coinsCount || numCoins || 4;
+      
+      // Fetch random tokens for flow animation
+      const batchRequests = [
+        apiService.getRandomTokens(8, theme),
+        apiService.getRandomTokens(8, theme),
+        apiService.getRandomTokens(8, theme),
+        apiService.getRandomTokens(8, theme),
+      ];
+      
+      const batchResponses = await Promise.all(batchRequests);
+      const allRandomTokens: Token[] = [];
+      
+      batchResponses.forEach(response => {
+        if (response.success && response.tokens) {
+          allRandomTokens.push(...response.tokens);
+        }
+      });
+
+      if (allRandomTokens.length === 0) {
+        return;
+      }
+
+      // Create token arrays for each position (infinite loop style)
+      const arrays: Token[][] = [];
+      const initialScrollPositions: number[] = [];
+      
+      for (let i = 0; i < coinsToUse; i++) {
+        // Create array with 30 random tokens (for seamless looping)
+        const positionArray: Token[] = [];
+        
+        for (let j = 0; j < 30; j++) {
+          const randomIndex = Math.floor(Math.random() * allRandomTokens.length);
+          positionArray.push(allRandomTokens[randomIndex] || {
+            category: '',
+            name: `Token ${j}`,
+            address: '',
+            image: '/frame-3.png'
+          });
+        }
+        
+        arrays.push(positionArray);
+        initialScrollPositions.push(0);
+      }
+      
+      setFlowTokenArrays(arrays);
+      setFlowScrollPositions(initialScrollPositions);
+      flowStartTimeRef.current = performance.now();
+
+      // Start continuous flow animation at constant speed
+      const tokenHeight = 100;
+      const constantSpeed = 0.15; // pixels per millisecond (constant speed)
+      
+      const animate = (currentTime: number) => {
+        // Stop if displayedTokens are set (user confirmed)
+        if (displayedTokens.length > 0) {
+          setIsFlowAnimating(false);
+          return;
+        }
+
+        const deltaTime = currentTime - flowStartTimeRef.current;
+        flowStartTimeRef.current = currentTime;
+
+        setFlowScrollPositions(prev => {
+          return prev.map((pos, index) => {
+            // Constant speed scrolling
+            const newPos = pos + (constantSpeed * deltaTime);
+            const arrayLength = arrays[index]?.length || 30;
+            const maxScroll = (arrayLength - 1) * tokenHeight;
+            
+            // Loop back to start when reaching the end
+            if (newPos >= maxScroll) {
+              return 0;
+            }
+            
+            return newPos;
+          });
+        });
+
+        if (isFlowAnimating && displayedTokens.length === 0) {
+          flowAnimationFrameRef.current = requestAnimationFrame(animate);
+        }
+      };
+
+      flowAnimationFrameRef.current = requestAnimationFrame(animate);
+    } catch (error) {
+      console.error("Failed to start flow animation:", error);
+      setIsFlowAnimating(false);
+    }
+  };
+
+  // Finish flow animation and show selected tokens
+  const finishFlowAnimation = () => {
+    setIsFlowAnimating(false);
+    if (flowAnimationFrameRef.current !== null) {
+      cancelAnimationFrame(flowAnimationFrameRef.current);
+      flowAnimationFrameRef.current = null;
+    }
+    // Clear flow arrays
+    setFlowTokenArrays([]);
+    setFlowScrollPositions([]);
+  };
 
   const startRollingAnimation = (): (() => void) => {
     if (!numCoins || !selectedTheme) {
@@ -332,9 +498,10 @@ export const PortfolioSection = (): JSX.Element => {
     }
   }, [publicKey, selectedContractTheme, selectedTheme, displayedTokens, tokens, setDisplayedTokens, rerollCount, setRerollCount, setTokens]);
 
-  // Use displayedTokens from context if available (after Craft Crate or after purchase), otherwise use animation tokens if animating, otherwise use default tokens (first N tokens preview), otherwise use final tokens
-  // After purchase completes (ROLLING_COMPLETE step), always show displayedTokens if available
-  const shouldShowDisplayedTokens = displayedTokens.length > 0 && (!isRolling || currentStep === GameFlowStep.ROLLING_COMPLETE);
+  // Use displayedTokens if available (after Confirm Craft), otherwise show flow animation
+  const shouldShowDisplayedTokens = displayedTokens.length > 0 && !isFlowAnimating;
+  const showFlowAnimation = isFlowAnimating && displayedTokens.length === 0 && flowTokenArrays.length > 0;
+  
   const displayTokens = shouldShowDisplayedTokens
     ? displayedTokens.map((token: any) => ({
         category: token.category || '',
@@ -344,7 +511,7 @@ export const PortfolioSection = (): JSX.Element => {
       }))
     : (isAnimating 
       ? animationTokens 
-      : (defaultTokens.length > 0 && !isRolling
+      : (defaultTokens.length > 0 && !isRolling && !isFlowAnimating
         ? defaultTokens 
       : (tokens.length > 0 
         ? tokens 
@@ -363,21 +530,141 @@ export const PortfolioSection = (): JSX.Element => {
   const percentagePerCoin = displayTokens.length > 0 ? 100 / displayTokens.length : 0;
   
   return (
-    <section className="flex justify-center mt-12">
+    <>
+      <style>{`
+        @keyframes spin {
+          from {
+            transform: rotate(0deg);
+          }
+          to {
+            transform: rotate(360deg);
+          }
+        }
+        .loading-spin {
+          animation: spin 1s linear infinite;
+        }
+      `}</style>
+      <section className="flex justify-center mt-12">
       <div className="flex justify-center min-h-[400px] w-[70%] bg-[#0D0D0D] rounded-3xl border-t border-t-[#C4C4C4] border-b border-b-[#5E5E5E] relative overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[1px] before:bg-gradient-to-b before:from-[#C4C4C4] before:to-[#5E5E5E] before:rounded-tl-3xl before:rounded-bl-3xl after:content-[''] after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[1px] after:bg-gradient-to-b after:from-[#C4C4C4] after:to-[#5E5E5E] after:rounded-tr-3xl after:rounded-br-3xl py-12">
         <div className="flex flex-col w-full items-center justify-center gap-6 sm:gap-8 lg:gap-[39px] px-4 sm:px-8 lg:px-[186px] py-8 sm:py-12 lg:py-[138px] relative">
           <div className="w-full overflow-x-auto">
-            <div className={`flex flex-col sm:flex-row sm:flex-nowrap items-start sm:items-center sm:min-w-max ${
-              displayTokens.length <= 2 
-                ? 'justify-center gap-4 sm:gap-8 lg:gap-20' 
-                : 'justify-center gap-4 sm:gap-2.5'
-            }`}>
-              {!isAnimating && !tokensLoading && displayTokens.length === 0 ? (
-                <div className="text-white text-center py-4 w-full sm:w-[200px] flex-shrink-0">
+            <div className={`flex flex-col sm:flex-row sm:flex-nowrap items-start sm:items-center sm:min-w-max justify-center gap-4`}>
+              {!isAnimating && !tokensLoading && displayTokens.length === 0 && !showFlowAnimation && !isFlowLoading ? (
+                <div className="text-white text-center py-4 w-full sm:w-[100px] flex-shrink-0">
                   Select a category and number of coins to see tokens
                 </div>
-              ) : (
-                (isAnimating || displayTokens.length > 0) ? displayTokens.map((item: Token, index: number) => {
+              ) : isFlowLoading ? Array.from({ length: numCoins || 4 }, (_, index) => {
+                const coinPercentage = getPercentageForCoin(index);
+                const percentageDecimal = coinPercentage / 100;
+                const calculatedValue = investmentAmount && solanaPrice 
+                  ? investmentAmount * solanaPrice * percentageDecimal 
+                  : 0;
+                const currentValue = `Current Value $${calculatedValue.toFixed(2)}`;
+
+                return (
+                  <div
+                    key={index}
+                    className="flex flex-col w-[100px] flex-shrink-0 items-center gap-[12px] relative"
+                  >
+                    <div className="flex items-center justify-center gap-2 px-2 py-[8px] relative self-stretch w-full flex-[0_0_auto] bg-[#212121] rounded-md">
+                      <div className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-normal text-[#eaeaea] text-[10px] tracking-[0] leading-[normal]">
+                        {currentValue}
+                      </div>
+                    </div>
+
+                    {/* Loading container */}
+                    <div className="relative w-[100px] h-[100px] overflow-hidden bg-[#1a1a1a] flex items-center justify-center">
+                      <div className="w-8 h-8 border-2 border-[#BBFE03] border-t-transparent rounded-full loading-spin" />
+                    </div>
+
+                    <div className="flex h-3 items-center justify-center gap-2 px-2 py-[10px] relative self-stretch w-full bg-[#4d4d4d] rounded-md">
+                      <div 
+                        className="relative w-fit mt-[-6px] mb-[-4px] [font-family:'Inter',Helvetica] font-normal text-[10px] sm:text-xs tracking-[0] leading-[normal] z-10 rounded-md"
+                        style={{ 
+                          color: '#000000'
+                        }}
+                      >
+                        {Math.round(coinPercentage)}%
+                      </div>
+
+                      <div 
+                        className="absolute top-0 left-px h-full bg-[#BBFE03] z-0 rounded-md" 
+                        style={{ width: `${coinPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              }) : showFlowAnimation ? Array.from({ length: numCoins || 4 }, (_, index) => {
+                  const coinPercentage = getPercentageForCoin(index);
+                  const percentageDecimal = coinPercentage / 100;
+                  const calculatedValue = investmentAmount && solanaPrice 
+                    ? investmentAmount * solanaPrice * percentageDecimal 
+                    : 0;
+                  const currentValue = `Current Value $${calculatedValue.toFixed(2)}`;
+                  
+                  const positionArray = flowTokenArrays[index] || [];
+                  const scrollPosition = flowScrollPositions[index] || 0;
+
+                  return (
+                    <div
+                      key={index}
+                      className="flex flex-col w-[100px] flex-shrink-0 items-center gap-[12px] relative"
+                    >
+                      <div className="flex items-center justify-center gap-2 px-2 py-[8px] relative self-stretch w-full flex-[0_0_auto] bg-[#212121] rounded-md">
+                        <div className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-normal text-[#eaeaea] text-[10px] tracking-[0] leading-[normal]">
+                          {currentValue}
+                        </div>
+                      </div>
+
+                      {/* Slot machine container */}
+                      <div className="relative w-[100px] h-[100px] overflow-hidden">
+                        {/* Scrolling token list */}
+                        <div
+                          className="absolute w-full"
+                          style={{
+                            transform: `translateY(-${scrollPosition}px)`,
+                            willChange: 'transform',
+                            transition: 'none'
+                          }}
+                        >
+                          {positionArray.length > 0 ? positionArray.map((token, tokenIndex) => (
+                            <div
+                              key={tokenIndex}
+                              className="w-[100px] h-[100px] bg-cover bg-[50%_50%] relative"
+                              style={{ backgroundImage: `url(${token.image || '/frame-3.png'})` }}
+                            >
+                              {token.name && (
+                                <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5">
+                                  <div className="text-white text-[10px] sm:text-[12px] font-normal truncate text-center [font-family:'Inter',Helvetica]">
+                                    {token.name}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )) : (
+                            <div className="w-[100px] h-[100px] bg-[#1a1a1a]" />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex h-3 items-center justify-center gap-2 px-2 py-[10px] relative self-stretch w-full bg-[#4d4d4d] rounded-md">
+                        <div 
+                          className="relative w-fit mt-[-6px] mb-[-4px] [font-family:'Inter',Helvetica] font-normal text-[10px] sm:text-xs tracking-[0] leading-[normal] z-10 rounded-md"
+                          style={{ 
+                            color: '#000000'
+                          }}
+                        >
+                          {Math.round(coinPercentage)}%
+                        </div>
+
+                        <div 
+                          className="absolute top-0 left-px h-full bg-[#BBFE03] z-0 rounded-md" 
+                          style={{ width: `${coinPercentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                }) : (isAnimating || displayTokens.length > 0) ? displayTokens.map((item: Token, index: number) => {
                 // Handle Token objects from API
                 // Get the percentage for this specific coin
                 const coinPercentage = getPercentageForCoin(index);
@@ -392,7 +679,7 @@ export const PortfolioSection = (): JSX.Element => {
                 return (
                 <div
                   key={`${item.address || item.name}-${index}`}
-                  className={`flex flex-col w-full sm:w-[200px] flex-shrink-0 items-center gap-[12px] relative ${
+                  className={`flex flex-col w-[100px] flex-shrink-0 items-center gap-[12px] relative ${
                     showTokensAnimation && !isAnimating && tokens.length === 0
                       ? 'animate-token-appear'
                       : ''
@@ -409,10 +696,17 @@ export const PortfolioSection = (): JSX.Element => {
                     </div>
                   </div>
 
-                    <div
-                    className="flex flex-col w-full sm:w-[200px] h-[200px]  items-center justify-end gap-2 px-3 sm:px-[46px] py-2 relative bg-cover bg-[50%_50%]"
+                  <div
+                    className="w-[100px] h-[100px] bg-cover bg-[50%_50%] relative"
                     style={{ backgroundImage: `url(${image})` }}
-                    >
+                  >
+                    {item.name && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5">
+                        <div className="text-white text-[10px] sm:text-[12px] font-normal truncate text-center [font-family:'Inter',Helvetica]">
+                          {item.name}
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex h-3 items-center justify-center gap-2 px-2 py-[10px] relative self-stretch w-full bg-[#4d4d4d] rounded-md">
@@ -430,21 +724,69 @@ export const PortfolioSection = (): JSX.Element => {
                       style={{ width: `${coinPercentage}%` }}
                     />
                   </div>
-
-                  <Button
-                    variant="outline"
-                    onClick={() => handleReroll(index)}
-                    disabled={!publicKey || isRolling}
-                    className="h-auto justify-center px-2 py-[5px] relative self-stretch w-full flex-[0_0_auto] border border-solid border-[#BBFE03] bg-transparent hover:bg-[#BBFE03]/10 disabled:bg-[#BBFE03]/50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <div className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-normal text-[#BBFE03] text-[10px] sm:text-xs tracking-[0] leading-[normal]">
-                      Reroll (0.001 SOL)
-                    </div>
-                  </Button>
                 </div>
                 );
+              }) : (isAnimating || displayTokens.length > 0) ? displayTokens.map((item: Token, index: number) => {
+                const coinPercentage = getPercentageForCoin(index);
+                const percentageDecimal = coinPercentage / 100;
+                const calculatedValue = investmentAmount && solanaPrice 
+                  ? investmentAmount * solanaPrice * percentageDecimal 
+                  : 0;
+                const currentValue = `Current Value $${calculatedValue.toFixed(2)}`;
+                const image = item.image || '/frame-3.png';
+                
+                return (
+                  <div
+                    key={`${item.address || item.name}-${index}`}
+                    className={`flex flex-col w-[100px] flex-shrink-0 items-center gap-[12px] relative ${
+                      showTokensAnimation && !isAnimating && tokens.length === 0
+                        ? 'animate-token-appear'
+                        : ''
+                    }`}
+                    style={{
+                      animationDelay: showTokensAnimation && !isAnimating && tokens.length === 0 
+                        ? `${index * 0.1}s` 
+                        : '0s'
+                    }}
+                  >
+                    <div className="flex items-center justify-center gap-2 px-2 py-[8px] relative self-stretch w-full flex-[0_0_auto] bg-[#212121] rounded-md">
+                      <div className="relative w-fit mt-[-1.00px] [font-family:'Inter',Helvetica] font-normal text-[#eaeaea] text-[10px] tracking-[0] leading-[normal]">
+                        {currentValue}
+                      </div>
+                    </div>
+
+                    <div
+                      className="w-[100px] h-[100px] bg-cover bg-[50%_50%] relative"
+                      style={{ backgroundImage: `url(${image})` }}
+                    >
+                      {item.name && (
+                        <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5">
+                          <div className="text-white text-[10px] sm:text-[12px] font-normal truncate text-center [font-family:'Inter',Helvetica]">
+                            {item.name}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex h-3 items-center justify-center gap-2 px-2 py-[10px] relative self-stretch w-full bg-[#4d4d4d] rounded-md">
+                      <div 
+                        className="relative w-fit mt-[-6px] mb-[-4px] [font-family:'Inter',Helvetica] font-normal text-[10px] sm:text-xs tracking-[0] leading-[normal] z-10 rounded-md"
+                        style={{ 
+                          color: '#000000'
+                        }}
+                      >
+                        {Math.round(coinPercentage)}%
+                      </div>
+
+                      <div 
+                        className="absolute top-0 left-px h-full bg-[#BBFE03] z-0 rounded-md" 
+                        style={{ width: `${coinPercentage}%` }}
+                      />
+                    </div>
+                  </div>
+                );
               }) : null
-              )}
+              }
             </div>
           </div>
 
@@ -487,5 +829,6 @@ export const PortfolioSection = (): JSX.Element => {
         </div> 
       </div>   
     </section>
+    </>
   );
 };
