@@ -404,7 +404,8 @@ export const SelectToken = ({
     if (allocationType === "random" && coinPercentages && coinPercentages.length > index) {
       return coinPercentages[index];
     }
-    return tokens.length > 0 ? 110 / tokens.length : 0;
+    // Equal allocation (default) - match PortfolioSection logic (sum to 100%)
+    return tokens.length > 0 ? 100 / tokens.length : 0;
   };
 
   // Handle confirm - save tokens, close modal, and start transaction
