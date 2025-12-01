@@ -168,10 +168,10 @@ export const SelectToken = ({
                 pixelsPerMs = 0.05; // 100px per second
               } else if (distanceToFinal > 50) {
                 // Very close: very slow
-                pixelsPerMs = 0.03; // 50px per second
+                pixelsPerMs = 0.05; // 50px per second
               } else {
                 // Almost there: crawl
-                pixelsPerMs = 0.02; // Gradually slow to 0
+                pixelsPerMs = 0.05; // Gradually slow to 0
               }
               
               // Update base position (only increase, never decrease)
