@@ -341,12 +341,18 @@ export const YourCrates = ({ onOpenCrate: _onOpenCrate, onBack: _onBack }: YourC
                             </div>
                             <button 
                               onClick={() => {
-                                navigate("/cash-out", {
+                                navigate(`/cash-out?purchaseId=${group.purchaseId}`, {
                                   state: {
                                     purchaseId: group.purchaseId,
                                     category: group.category,
                                     tokens: group.tokens,
-                                    totalSol: totalSol
+                                    totalSol: totalSol,
+                                    // Pass pre-calculated P&L values from backend for consistency
+                                    totalPnlPercent: group.totalPnlPercent,
+                                    totalPnlValue: group.totalPnlValue,
+                                    totalInvested: group.totalInvested,
+                                    totalCurrentValue: group.totalCurrentValue,
+                                    isPositive: group.isPositive
                                   }
                                 });
                               }}

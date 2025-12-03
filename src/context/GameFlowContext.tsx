@@ -210,7 +210,7 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
       console.log('💰 Buy amounts:', buyAmounts);
 
       // Step 4: Call backend createCrate to get generated wallet and transaction
-      console.log('📞 [FRONTEND] Calling backend createCrate...');
+      console.log('📞 [FRONTEND] Calling backend createCrate with tokens:', tokensWithAmounts.map(t => t.tokenName));
       let crateResponse: any;
       try {
         crateResponse = await apiService.createCrate({
@@ -218,7 +218,8 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
           theme: selectedContractTheme || selectedTheme || 'celebrities',
           numCoins: numCoins as 2 | 4 | 6 | 8,
           splitType: allocationType,
-          userPublicKey: publicKey.toString()
+          userPublicKey: publicKey.toString(),
+          tokens: tokensWithAmounts // Send the selected tokens to backend
         });
         console.log('✅ [FRONTEND] Received response from backend');
       } catch (apiError: any) {
@@ -235,8 +236,20 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
 
       const generatedWalletPublicKey = crateResponse.generatedWalletPublicKey;
       const purchaseId = crateResponse.purchaseId;
+      const responseTokens = crateResponse.tokens || tokensWithAmounts;
       console.log('✅ Generated wallet:', generatedWalletPublicKey.slice(0, 8) + '...');
       console.log('✅ Purchase ID:', purchaseId);
+      console.log('✅ Tokens from backend response:', responseTokens.map((t: any) => t.tokenName));
+      
+      // Update displayedTokens with tokens from backend response to ensure consistency
+      const formattedResponseTokens = responseTokens.map((t: any) => ({
+        address: t.mintAddress,
+        name: t.tokenName,
+        image: t.tokenImage,
+        buyAmountSol: t.buyAmountSol
+      }));
+      setDisplayedTokens(formattedResponseTokens);
+      console.log('✅ Updated displayedTokens with backend response tokens');
       
       // Step 5: Create transaction in frontend and sign with wallet
       console.log('📝 Creating SOL transfer transaction in frontend...');
@@ -251,24 +264,51 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
       const solToSend = investmentAmount + 0.02 + rerollFee;
       const lamportsToSend = Math.floor(solToSend * LAMPORTS_PER_SOL);
 
-      // Get recent blockhash
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      // Get minimum rent-exempt balance for a basic account
+      const minimumRentExemptBalance = await connection.getMinimumBalanceForRentExemption(0);
+      console.log(`💰 Minimum rent-exempt balance: ${minimumRentExemptBalance} lamports (${(minimumRentExemptBalance / LAMPORTS_PER_SOL).toFixed(9)} SOL)`);
 
-      // Create SOL transfer transaction
+      // Check if generated wallet account exists
+      const generatedWalletPubkey = new PublicKey(generatedWalletPublicKey);
+      const accountInfo = await connection.getAccountInfo(generatedWalletPubkey);
+      const accountExists = accountInfo !== null;
+      console.log(`📋 Generated wallet account exists: ${accountExists}`);
+
+      // Create SOL transfer transaction (without blockhash yet)
       const transaction = new Transaction();
+
+      // If account doesn't exist, add rent-exempt balance transfer first (auto-creates account)
+      if (!accountExists) {
+        console.log('🏗️  Adding rent-exempt balance transfer (will auto-create account)...');
+        transaction.add(
+          SystemProgram.transfer({
+            fromPubkey: publicKey,
+            toPubkey: generatedWalletPubkey,
+            lamports: minimumRentExemptBalance,
+          })
+        );
+      }
+
+      // Add main SOL transfer instruction
+      console.log(`💸 Adding SOL transfer: ${lamportsToSend} lamports (${solToSend.toFixed(4)} SOL)`);
       transaction.add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(generatedWalletPublicKey),
+          toPubkey: generatedWalletPubkey,
           lamports: lamportsToSend,
         })
       );
 
-      transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
       console.log('📝 Transaction created, requesting wallet signature...');
       console.log('📝 Wallet modal should appear now - please sign the transaction');
+      
+      // Get fresh blockhash right before signing to prevent expiration
+      console.log('🔄 Getting fresh blockhash before signing...');
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      transaction.recentBlockhash = blockhash;
+      console.log(`✅ Fresh blockhash obtained: ${blockhash.slice(0, 8)}...`);
       
       // Sign transaction with user's wallet (this will show wallet modal)
       let signedTransaction: Transaction;
@@ -332,14 +372,49 @@ export const GameFlowProvider = ({ children }: { children: React.ReactNode }): J
       // Move to rolling step
       setCurrentStep(GameFlowStep.ROLLING);
       
-      // After animation, move to results and clear displayedTokens/reset rerollCount
-      setTimeout(() => {
+      // After animation, fetch actual purchased tokens from DB and update displayedTokens
+      setTimeout(async () => {
         setCurrentStep(GameFlowStep.ROLLING_COMPLETE);
-        // Clear displayedTokens and reset rerollCount after purchase completes
-        // This allows user to select different category and craft new crate
-        setDisplayedTokens([]);
+        
+        // Fetch actual purchased tokens from database to ensure consistency
+        try {
+          console.log('📦 Fetching purchased tokens from database for purchaseId:', purchaseId);
+          const walletResponse = await apiService.getUserWallet(publicKey.toString());
+          
+          if (walletResponse.success && walletResponse.wallet?.tokenPurchases) {
+            // Find the purchase with matching purchaseId
+            const purchase = walletResponse.wallet.tokenPurchases.find(
+              (p: any) => p.purchaseId === purchaseId
+            );
+            
+            if (purchase && purchase.tokens && purchase.tokens.length > 0) {
+              // Format tokens from DB to match displayedTokens format
+              const dbTokens = purchase.tokens.map((token: any) => ({
+                address: token.mintAddress,
+                name: token.tokenName,
+                image: token.tokenImage,
+                buyAmountSol: token.buyAmountSol
+              }));
+              
+              console.log('✅ Loaded purchased tokens from DB:', dbTokens.map((t: any) => t.name));
+              setDisplayedTokens(dbTokens);
+              console.log('✅ Updated displayedTokens with actual purchased tokens from database');
+            } else {
+              console.warn('⚠️ Purchase not found in database or has no tokens');
+              // Keep displayedTokens as is (from backend response)
+            }
+          } else {
+            console.warn('⚠️ Failed to fetch wallet data from database');
+            // Keep displayedTokens as is (from backend response)
+          }
+        } catch (error: any) {
+          console.error('❌ Error fetching purchased tokens from database:', error);
+          // Keep displayedTokens as is (from backend response) on error
+        }
+        
+        // Reset rerollCount after purchase completes
         setRerollCount(0);
-        console.log('✅ Purchase complete - cleared displayedTokens and reset rerollCount');
+        console.log('✅ Purchase complete - updated displayedTokens from DB and reset rerollCount');
       }, 3000);
     } catch (err: any) {
       console.error('❌ [CREATE CRATE] Error:', err);

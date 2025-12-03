@@ -62,6 +62,12 @@ export interface CreateCrateRequest {
   numCoins: 2 | 4 | 6 | 8;
   splitType: 'equal' | 'random';
   userPublicKey: string;
+  tokens: Array<{
+    mintAddress: string;
+    tokenName: string;
+    tokenImage?: string;
+    buyAmountSol: number;
+  }>;
 }
 
 export interface CreateCrateResponse {

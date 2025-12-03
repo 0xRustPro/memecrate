@@ -32,8 +32,8 @@ export const WalletContextProvider: FC<WalletContextProviderProps> = ({
     setWalletError(message);
   };
   
-  // Use devnet for development, or mainnet-beta for production
-  const network = WalletAdapterNetwork.Devnet;
+  // Use mainnet-beta for production
+  const network = WalletAdapterNetwork.Mainnet;
   
   // Get RPC endpoint from environment or use a reliable public endpoint
   const endpoint = useMemo(() => {
@@ -44,11 +44,11 @@ export const WalletContextProvider: FC<WalletContextProviderProps> = ({
       return customUrl;
     }
     
-    // Use the official Solana devnet RPC endpoint
+    // Use the official Solana mainnet-beta RPC endpoint
     // This is publicly accessible and works from any location
-    const devnetEndpoint = clusterApiUrl(network);
-    console.log('Using default Solana RPC endpoint:', devnetEndpoint);
-    return devnetEndpoint;
+    const mainnetEndpoint = clusterApiUrl(network);
+    console.log('Using default Solana RPC endpoint:', mainnetEndpoint);
+    return mainnetEndpoint;
   }, [network]);
 
   console.log('Solana RPC Endpoint:', endpoint);

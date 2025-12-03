@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Button } from "../../components/ui/button";
 import { WalletButton } from "../../components/WalletButton";
 import { useWallet } from "@solana/wallet-adapter-react";
@@ -24,6 +24,7 @@ interface CashOutProps {
 export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Element => {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { publicKey } = useWallet();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +38,14 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
   const [totalSol, setTotalSol] = useState<number>(0);
   const [initialInvestment, setInitialInvestment] = useState<number>(0); // initialInvestment from wallets.json
   const [tokensLoading, setTokensLoading] = useState(false);
+  // Pre-calculated P&L values from backend (for consistency with YourCrates)
+  const [preCalculatedPnl, setPreCalculatedPnl] = useState<{
+    totalPnlPercent?: string;
+    totalPnlValue?: string;
+    totalInvested?: string;
+    totalCurrentValue?: string;
+    isPositive?: boolean;
+  } | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [successData, setSuccessData] = useState<{
     initialInvestment: string;
@@ -79,12 +88,29 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
     return '';
   };
 
-  // Get purchase data from location state and fetch P&L from backend
+  // Get purchase data from location state, URL params, or redirect
   useEffect(() => {
-    // Get purchaseId from location state (from YourCrates navigation)
-    if (location.state?.purchaseId) {
-      setPurchaseId(location.state.purchaseId);
+    // Priority 1: Get purchaseId from location state (from YourCrates navigation)
+    // Priority 2: Get purchaseId from URL query params (fallback for refresh)
+    const statePurchaseId = location.state?.purchaseId;
+    const urlPurchaseId = searchParams.get('purchaseId');
+    const finalPurchaseId = statePurchaseId || urlPurchaseId;
+    
+    if (finalPurchaseId) {
+      setPurchaseId(finalPurchaseId);
+      // If purchaseId came from state but not in URL, add it to URL for persistence
+      if (statePurchaseId && !urlPurchaseId) {
+        // Add purchaseId to URL for persistence (without replacing state)
+        const newUrl = `/cash-out?purchaseId=${statePurchaseId}`;
+        window.history.replaceState(location.state, '', newUrl);
+      }
+    } else {
+      // No purchaseId found - redirect to YourCrates
+      console.warn('⚠️ CashOut opened without purchaseId. Redirecting to YourCrates...');
+      navigate("/your-crates", { replace: true });
+      return;
     }
+    
     // Get category and tokens from location state (from YourCrates navigation)
     if (location.state?.category) {
       setPurchaseCategory(location.state.category);
@@ -93,57 +119,150 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
     if (location.state?.totalSol) {
       setTotalSol(location.state.totalSol);
     }
-  }, [location]);
+    // Get pre-calculated P&L values from backend (for consistency)
+    if (location.state?.totalPnlPercent !== undefined) {
+      setPreCalculatedPnl({
+        totalPnlPercent: location.state.totalPnlPercent,
+        totalPnlValue: location.state.totalPnlValue,
+        totalInvested: location.state.totalInvested,
+        totalCurrentValue: location.state.totalCurrentValue,
+        isPositive: location.state.isPositive
+      });
+    }
+  }, [location, searchParams, navigate]);
 
-  // Fetch tokens P&L and initialInvestment from backend when purchaseId is available
+  // Fetch user portfolio data and tokens P&L from backend
   useEffect(() => {
-    const fetchTokensPnl = async () => {
-      if (!purchaseId) {
-        // If no purchaseId, try to use tokens from location state as fallback
-        if (location.state?.tokens && Array.isArray(location.state.tokens)) {
-          const displayTokens: TokenDisplay[] = location.state.tokens.map((token: any) => {
-            const invested = token.buyAmountSol || 0;
-            const currentValue = invested * 1.3; // Placeholder fallback
-            const pnlValue = currentValue - invested;
-            const pnlPercent = ((pnlValue / invested) * 100).toFixed(2);
-            const isPositive = pnlValue >= 0;
-            
-            return {
-              name: token.tokenName || 'Unknown Token',
-              invested: invested.toFixed(4),
-              currentValue: currentValue.toFixed(4),
-              pnl: `${isPositive ? '+' : ''}${pnlPercent}%`,
-              isPositive: isPositive
-            };
-          });
-          setTokens(displayTokens);
-        } else {
-          setTokens([]);
-        }
+    const fetchPortfolioData = async () => {
+      if (!publicKey) {
+        setTokens([]);
         return;
       }
 
+      setTokensLoading(true);
+
       try {
-        setTokensLoading(true);
-        // Fetch P&L data from backend
-        const result = await apiService.getTokensPnl(purchaseId);
+        // Step 1: Fetch user portfolio from user-portfolio collection in MongoDB
+        const walletResult = await apiService.getUserWallet(publicKey.toString());
         
-        if (result.success && result.tokens) {
-          // Transform backend response to display format
-          const displayTokens: TokenDisplay[] = result.tokens.map((token) => ({
-            name: token.tokenName,
-            invested: token.invested,
-            currentValue: token.currentValue,
-            pnl: token.pnl,
-            isPositive: token.isPositive
-          }));
-          setTokens(displayTokens);
-        } else {
-          console.error('Failed to fetch tokens P&L:', result);
+        if (!walletResult.success || !walletResult.wallet?.tokenPurchases) {
+          console.error('Failed to fetch user portfolio:', walletResult);
           setTokens([]);
+          setInitialInvestment(0);
+          return;
+        }
+
+        const allPurchases = walletResult.wallet.tokenPurchases;
+
+        // Step 2: Require purchaseId and show only that specific purchase
+        if (!purchaseId) {
+          console.warn('⚠️ CashOut opened without purchaseId. No tokens will be displayed.');
+          setTokens([]);
+          setInitialInvestment(0);
+          return;
+        }
+
+        const purchaseGroup = allPurchases.find(
+          (purchase: any) => purchase.purchaseId === purchaseId
+        );
+
+        if (!purchaseGroup) {
+          console.error(`Purchase group not found for purchaseId: ${purchaseId}`);
+          setTokens([]);
+          setInitialInvestment(0);
+          return;
+        }
+
+        // Debug: Log purchase group data
+        console.log(`📦 Purchase group found for purchaseId: ${purchaseId}`, {
+          category: purchaseGroup.category,
+          initialInvestment: purchaseGroup.initialInvestment,
+          tokenCount: purchaseGroup.tokens?.length || 0,
+          tokens: purchaseGroup.tokens?.map((t: any) => ({
+            name: t.tokenName,
+            buyAmountSol: t.buyAmountSol,
+            tokenAmount: t.tokenAmount,
+            mintAddress: t.mintAddress
+          }))
+        });
+
+        // Extract initialInvestment and category from purchase group
+        if (purchaseGroup.initialInvestment !== undefined) {
+          setInitialInvestment(parseFloat(purchaseGroup.initialInvestment.toString()) || 0);
+          console.log(`✅ Loaded initialInvestment from user-portfolio: ${purchaseGroup.initialInvestment} SOL`);
+        } else {
+          const calculatedInvestment = purchaseGroup.tokens?.reduce((sum: number, token: any) => {
+            return sum + (token.buyAmountSol || 0);
+          }, 0) || 0;
+          setInitialInvestment(calculatedInvestment || 0);
+          console.warn(`⚠️ initialInvestment not found for purchaseId ${purchaseId}, using calculated value: ${calculatedInvestment} SOL`);
+        }
+
+        // Set category from purchase group if available
+        if (purchaseGroup.category && !purchaseCategory) {
+          setPurchaseCategory(purchaseGroup.category);
+        }
+
+        // Fetch individual token P&L data for this purchase
+        const pnlResult = await apiService.getTokensPnl(purchaseId);
+        console.log(`📊 P&L API response for purchaseId ${purchaseId}:`, {
+          success: pnlResult.success,
+          tokenCount: pnlResult.tokens?.length || 0,
+          tokens: pnlResult.tokens
+        });
+        
+        if (pnlResult.success && pnlResult.tokens && pnlResult.tokens.length > 0) {
+          // Merge DB data (source of truth for name & invested) with P&L data from API
+          const displayTokens: TokenDisplay[] = (purchaseGroup.tokens || []).map((dbToken: any) => {
+            const investedNumber = dbToken.buyAmountSol || 0;
+            const investedFormatted = investedNumber.toFixed(4);
+
+            // Try to find matching P&L entry by mintAddress, fallback to tokenName
+            const pnlToken = pnlResult.tokens!.find((t: any) => 
+              (t.mintAddress && dbToken.mintAddress && t.mintAddress === dbToken.mintAddress) ||
+              (t.tokenName && dbToken.tokenName && t.tokenName === dbToken.tokenName)
+            );
+
+            return {
+              name: dbToken.tokenName || 'Unknown Token',
+              invested: investedFormatted,
+              currentValue: pnlToken?.currentValue || '0.0000',
+              pnl: pnlToken?.pnl || 'N/A',
+              isPositive: pnlToken?.isPositive ?? false
+            };
+          });
+
+          setTokens(displayTokens);
+          console.log(`✅ Loaded ${displayTokens.length} tokens with P&L data for purchaseId: ${purchaseId}`);
+        } else {
+          // Fallback: Use tokens directly from user-portfolio (at least show the data we have)
+          console.warn('⚠️ P&L calculation failed or returned empty, using tokens from user-portfolio directly');
+          if (purchaseGroup.tokens && Array.isArray(purchaseGroup.tokens) && purchaseGroup.tokens.length > 0) {
+            const displayTokens: TokenDisplay[] = purchaseGroup.tokens.map((token: any) => {
+              const invested = token.buyAmountSol || 0;
+              console.log(`📝 Token from user-portfolio:`, {
+                tokenName: token.tokenName,
+                buyAmountSol: token.buyAmountSol,
+                mintAddress: token.mintAddress,
+                tokenAmount: token.tokenAmount
+              });
+              return {
+                name: token.tokenName || 'Unknown Token',
+                invested: invested > 0 ? invested.toFixed(4) : '0.0000',
+                currentValue: '0.0000', // P&L calculation failed, can't determine current value
+                pnl: 'N/A',
+                isPositive: false
+              };
+            });
+            setTokens(displayTokens);
+            console.log(`⚠️ Using ${displayTokens.length} tokens from user-portfolio (no P&L data available)`);
+          } else {
+            console.error('❌ No tokens found in purchaseGroup.tokens');
+            setTokens([]);
+          }
         }
       } catch (error: any) {
-        console.error('Error fetching tokens P&L:', error);
+        console.error('Error fetching portfolio data:', error);
         // Fallback to location state tokens if available
         if (location.state?.tokens && Array.isArray(location.state.tokens)) {
           const displayTokens: TokenDisplay[] = location.state.tokens.map((token: any) => {
@@ -165,45 +284,23 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
         } else {
           setTokens([]);
         }
+        setInitialInvestment(totalSol || 0);
       } finally {
         setTokensLoading(false);
       }
     };
 
-    const fetchInitialInvestment = async () => {
-      if (!purchaseId || !publicKey) return;
-
-      try {
-        // Fetch wallet data to get initialInvestment for this purchaseId
-        const walletResult = await apiService.getUserWallet(publicKey.toString());
-        if (walletResult.success && walletResult.wallet?.tokenPurchases) {
-          // Find the purchase group with matching purchaseId
-          const purchaseGroup = walletResult.wallet.tokenPurchases.find(
-            (purchase: any) => purchase.purchaseId === purchaseId
-          );
-          if (purchaseGroup?.initialInvestment !== undefined) {
-            setInitialInvestment(parseFloat(purchaseGroup.initialInvestment) || 0);
-            console.log(`✅ Loaded initialInvestment from wallets.json: ${purchaseGroup.initialInvestment} SOL`);
-          } else {
-            // Fallback: calculate from totalSol if initialInvestment not found
-            console.warn(`⚠️ initialInvestment not found for purchaseId ${purchaseId}, using totalSol as fallback`);
-            setInitialInvestment(totalSol || 0);
-          }
-        }
-      } catch (error: any) {
-        console.error('Error fetching initialInvestment:', error);
-        // Fallback: use totalSol if fetch fails
-        setInitialInvestment(totalSol || 0);
-      }
-    };
-
-    fetchTokensPnl();
-    fetchInitialInvestment();
-  }, [purchaseId, location.state, publicKey, totalSol]);
+    fetchPortfolioData();
+  }, [purchaseId, location.state, publicKey, totalSol, purchaseCategory]);
 
   const handleConfirmCashOut = async () => {
-    if (!purchaseId || !publicKey) {
-      alert("Missing purchase information or wallet connection. Please go back and select a crate to cashout.");
+    if (!publicKey) {
+      alert("Please connect your wallet to cashout.");
+      return;
+    }
+
+    if (!purchaseId) {
+      alert("Please select a specific purchase to cashout. Go back and select a crate from your portfolio.");
       return;
     }
     
@@ -214,7 +311,16 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
       if (result.success) {
         // Use initialInvestment from wallets.json (includes 0.02 SOL fee + reroll fees)
         const initialInvestmentValue = initialInvestment || totalSol || 0;
-        const finalPayoutValue = result.userAmount || 0;
+        
+        // Calculate values based on user's requirements:
+        // - Final Value = totalSolReceived (total value before exit fee)
+        // - Exit Fee = Final Value * 1%
+        // - Final Payout = Final Value * 99% (amount received by user)
+        const finalValue = result.totalSolReceived || 0;
+        const exitFeeValue = finalValue * 0.01; // 1% of final value
+        const finalPayoutValue = finalValue * 0.99; // 99% of final value
+        
+        // Calculate total return based on finalPayout (what user actually receives)
         const totalReturnValue = finalPayoutValue - initialInvestmentValue;
         const totalReturnPercentValue = initialInvestmentValue > 0 
           ? (totalReturnValue / initialInvestmentValue * 100) 
@@ -223,10 +329,10 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
         // Store success data and show modal
         setSuccessData({
           initialInvestment: initialInvestmentValue.toFixed(4) + " SOL",
-          finalValue: (result.totalSolReceived || 0).toFixed(4) + " SOL",
+          finalValue: finalValue.toFixed(4) + " SOL",
           totalReturn: `${totalReturnValue >= 0 ? '+' : ''}${totalReturnValue.toFixed(4)} SOL`,
           totalReturnPercent: `${totalReturnPercentValue >= 0 ? '+' : ''}${totalReturnPercentValue.toFixed(2)}%`,
-          exitFee: `-${(result.feeAmount || 0).toFixed(5)} SOL`,
+          exitFee: `-${exitFeeValue.toFixed(5)} SOL`,
           finalPayout: finalPayoutValue.toFixed(5) + " SOL",
           transactionSignature: result.signature || transactionSignature,
           category: purchaseCategory,
@@ -337,14 +443,32 @@ export const CashOut = ({ onConfirm, onBack: _onBack }: CashOutProps): JSX.Eleme
                 Profit Since Crafting
               </span>
               {(() => {
-                // Calculate total P&L from tokens
-                const totalInvested = tokens.reduce((sum, token) => sum + parseFloat(token.invested || '0'), 0);
-                const totalCurrentValue = tokens.reduce((sum, token) => sum + parseFloat(token.currentValue || '0'), 0);
-                const totalPnlValue = totalCurrentValue - totalInvested;
-                const totalPnlPercent = totalInvested > 0 ? ((totalPnlValue / totalInvested) * 100) : 0;
-                const isPositive = totalPnlValue >= 0;
-                const pnlPercentFormatted = `${isPositive ? '+' : ''}${totalPnlPercent.toFixed(2)}%`;
-                const pnlValueFormatted = `${isPositive ? '+' : ''}${totalPnlValue.toFixed(4)} SOL`;
+                // Use pre-calculated P&L values from backend if available (for consistency with YourCrates)
+                // Otherwise, fall back to calculating from individual tokens
+                let totalPnlPercent: string;
+                let totalPnlValue: string;
+                let isPositive: boolean;
+
+                if (preCalculatedPnl?.totalPnlPercent !== undefined && preCalculatedPnl?.totalPnlValue !== undefined) {
+                  // Use pre-calculated values from backend
+                  totalPnlPercent = preCalculatedPnl.totalPnlPercent;
+                  totalPnlValue = preCalculatedPnl.totalPnlValue;
+                  isPositive = preCalculatedPnl.isPositive !== undefined 
+                    ? preCalculatedPnl.isPositive 
+                    : (parseFloat(totalPnlValue) >= 0);
+                } else {
+                  // Fallback: Calculate from individual tokens
+                  const totalInvested = tokens.reduce((sum, token) => sum + parseFloat(token.invested || '0'), 0);
+                  const totalCurrentValue = tokens.reduce((sum, token) => sum + parseFloat(token.currentValue || '0'), 0);
+                  const calculatedPnlValue = totalCurrentValue - totalInvested;
+                  const calculatedPnlPercent = totalInvested > 0 ? ((calculatedPnlValue / totalInvested) * 100) : 0;
+                  isPositive = calculatedPnlValue >= 0;
+                  totalPnlPercent = calculatedPnlPercent.toFixed(2);
+                  totalPnlValue = calculatedPnlValue.toFixed(4);
+                }
+
+                const pnlPercentFormatted = `${isPositive ? '+' : ''}${totalPnlPercent}%`;
+                const pnlValueFormatted = `${isPositive ? '+' : ''}${parseFloat(totalPnlValue).toFixed(4)} SOL`;
 
                 return (
                   <div className="flex items-center gap-2">

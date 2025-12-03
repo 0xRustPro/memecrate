@@ -544,7 +544,7 @@ export const PortfolioSection = (): JSX.Element => {
           animation: spin 1s linear infinite;
         }
       `}</style>
-      <section className="flex justify-center mt-12">
+    <section className="flex justify-center mt-12">
       <div className="flex justify-center min-h-[400px] w-[70%] bg-[#0D0D0D] rounded-3xl border-t border-t-[#C4C4C4] border-b border-b-[#5E5E5E] relative overflow-hidden before:content-[''] before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[1px] before:bg-gradient-to-b before:from-[#C4C4C4] before:to-[#5E5E5E] before:rounded-tl-3xl before:rounded-bl-3xl after:content-[''] after:absolute after:right-0 after:top-0 after:bottom-0 after:w-[1px] after:bg-gradient-to-b after:from-[#C4C4C4] after:to-[#5E5E5E] after:rounded-tr-3xl after:rounded-br-3xl py-12">
         <div className="flex flex-col w-full items-center justify-center gap-6 sm:gap-8 lg:gap-[39px] px-4 sm:px-8 lg:px-[186px] py-8 sm:py-12 lg:py-[138px] relative">
           <div className="w-full overflow-x-auto">
@@ -696,10 +696,10 @@ export const PortfolioSection = (): JSX.Element => {
                     </div>
                   </div>
 
-                  <div
+                    <div
                     className="w-[100px] h-[100px] bg-cover bg-[50%_50%] relative"
                     style={{ backgroundImage: `url(${image})` }}
-                  >
+                    >
                     {item.name && (
                       <div className="absolute bottom-0 left-0 right-0 bg-black/70 px-1 py-0.5">
                         <div className="text-white text-[10px] sm:text-[12px] font-normal truncate text-center [font-family:'Inter',Helvetica]">
@@ -783,7 +783,7 @@ export const PortfolioSection = (): JSX.Element => {
                         style={{ width: `${coinPercentage}%` }}
                       />
                     </div>
-                  </div>
+                </div>
                 );
               }) : null
               }
