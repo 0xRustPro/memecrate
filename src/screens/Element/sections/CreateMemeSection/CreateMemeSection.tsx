@@ -409,7 +409,7 @@ export const CreateMemeSection = (): JSX.Element => {
             </div>
           </div>
 
-          <div className="flex flex-col items-start gap-2.5 flex-shrink-0 w-full lg:w-auto">
+          {/* <div className="flex flex-col items-start gap-2.5 flex-shrink-0 w-full lg:w-auto">
             <Label className="[font-family:'Inter',Helvetica] font-normal text-[#f9f9f9] tracking-[0] leading-[normal]">
               Pick a category:
             </Label>
@@ -470,7 +470,7 @@ export const CreateMemeSection = (): JSX.Element => {
                 </span>
               </CardContent>
             </Card>
-          </div>
+          </div> */}
 
           <div className="flex flex-col items-start justify-center gap-2.5 flex-shrink-0 w-full lg:w-auto">
             <div className="flex flex-col w-full items-start gap-1.5">

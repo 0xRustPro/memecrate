@@ -52,7 +52,7 @@ function initApp() {
             <Route element={<Layout />}>
               <Route index element={null} />
               <Route path="/crate" element={null} />
-              <Route path="/pick-category" element={null} />
+             {/* <Route path="/pick-category" element={null} /> */}
               <Route path="/success-redeem" element={null} />
             </Route>
             <Route
