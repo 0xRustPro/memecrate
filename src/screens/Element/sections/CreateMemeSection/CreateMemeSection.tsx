@@ -316,10 +316,6 @@ export const CreateMemeSection = (): JSX.Element => {
       alert("Please enter a valid investment amount");
       return;
     }
-    if (!selectedTheme) {
-      alert("Please select a category");
-      return;
-    }
     if (![2, 4, 6, 8].includes(numCoins)) {
       alert("Please select 2, 4, 6, or 8 coins");
       return;
@@ -576,7 +572,7 @@ export const CreateMemeSection = (): JSX.Element => {
 
           <Button
             onClick={handleCraftCrate}
-            disabled={(isProcessing || isCrafting) || !investmentAmount || !selectedTheme}
+            disabled={(isProcessing || isCrafting) || !investmentAmount}
             className="h-auto w-full sm:w-auto px-4 sm:px-2.5 py-2.5 bg-[#BBFE03] hover:bg-[#BBFE03]/90 disabled:bg-[#BBFE03]/50 disabled:cursor-not-allowed [font-family:'Inter',Helvetica] font-normal text-black tracking-[0] leading-[normal] rounded-md"
           >
             {isCrafting ? "Loading..." : isProcessing ? "Processing..." : "Craft Crate"}
